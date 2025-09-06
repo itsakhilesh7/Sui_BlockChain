@@ -3,7 +3,7 @@ import { isValidSuiObjectId } from '@mysten/sui.js/utils';
 import { Box, Container, Flex, Heading, Text } from '@radix-ui/themes';
 import { useState, useEffect } from 'react';
 import { Counter } from './Counter';
-import { CreateCounter } from './CreateCounter';
+import Dashboard from './Dashboard';
 import { useNetworkVariable } from './networkConfig';
 
 function App() {
@@ -26,12 +26,6 @@ function App() {
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
-
-  const handleCounterCreated = (id: string) => {
-    console.log('Counter created with ID:', id);
-    window.location.hash = id;
-    setCounterId(id);
-  };
 
   return (
     <>
@@ -71,7 +65,7 @@ function App() {
             counterId ? (
               <Counter id={counterId} />
             ) : (
-              <CreateCounter onCreated={handleCounterCreated} />
+              <Dashboard />
             )
           ) : (
             <Heading>Please connect your wallet</Heading>

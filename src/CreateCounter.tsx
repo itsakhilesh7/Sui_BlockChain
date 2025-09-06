@@ -1,33 +1,24 @@
+// src/CreateCounter.tsx
+import React, { useState } from 'react';
+import { Box, Button, Flex, Text, TextField, Heading } from '@radix-ui/themes';
+import { useSignAndExecuteTransaction, useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
-import { Button } from '@radix-ui/themes';
-import { useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
 import { useNetworkVariable } from './networkConfig';
+import { addCounterForAddress } from './localCounters';
 
-export function CreateCounter({
-  onCreated,
-}: {
-  onCreated: (id: string) => void;
-}) {
-  const counterPackageId = useNetworkVariable('counterPackageId');
-  const suiClient = useSuiClient();
+export function CreateCounter({ onCreated }: { onCreated: (id: string) => void }) {
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false);
+
   const { mutate: signAndExecute } = useSignAndExecuteTransaction();
+  const currentAccount = useCurrentAccount();
+  const suiClient = useSuiClient();
+  const counterPackageId = useNetworkVariable('counterPackageId');
 
-  return (
-    <Button
-      size="3"
-      onClick={() => {
-        create();
-      }}
-    >
-      Create Counter
-    </Button>
-  );
-
-  // Helper function to retry fetching transaction details
   async function fetchTransactionWithRetry(digest: string, maxRetries = 5): Promise<any> {
     for (let i = 0; i < maxRetries; i++) {
       try {
-        const txDetails = await suiClient.getTransactionBlock({
+        return await suiClient.getTransactionBlock({
           digest,
           options: {
             showEffects: true,
@@ -36,98 +27,124 @@ export function CreateCounter({
             showInput: true,
           },
         });
-        return txDetails;
-      } catch (error: any) {
-        console.log(`Attempt ${i + 1} failed:`, error.message);
-        if (i === maxRetries - 1) {
-          throw error;
-        }
-        // Wait before retrying (exponential backoff)
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+      } catch (err) {
+        if (i === maxRetries - 1) throw err;
+        await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
       }
     }
+    // Unreachable, but TS likes a return
+    return null;
   }
 
-  function create() {
-    const txb = new Transaction();
+  const handleCreate = () => {
+    if (!currentAccount?.address) {
+      alert('Connect your wallet first.');
+      return;
+    }
+    setLoading(true);
 
+    const txb = new Transaction();
     txb.moveCall({
-      arguments: [],
       target: `${counterPackageId}::counter::create`,
+      arguments: [],
     });
 
     signAndExecute(
-      {
-        transaction: txb,
-      },
+      { transaction: txb },
       {
         onSuccess: async (result) => {
-          console.log('Transaction result:', result);
-
           try {
-            // Use retry mechanism to fetch transaction details
             const txDetails = await fetchTransactionWithRetry(result.digest);
 
-            console.log('Full transaction details:', txDetails);
-            console.log('Object changes:', txDetails.objectChanges);
-
+            // Try to find the created Counter objectId robustly
             let objectId: string | undefined;
 
-            // Method 1: Check objectChanges for created Counter objects
-            if (txDetails.objectChanges) {
+            if (txDetails?.objectChanges) {
               const createdCounter = txDetails.objectChanges.find(
-                (change: any) => {
-                  console.log('Checking change:', change);
-                  return (
-                    change.type === 'created' &&
-                    change.objectType &&
-                    (change.objectType.includes('Counter') ||
-                      change.objectType.includes(`${counterPackageId}::counter::Counter`))
-                  );
-                },
+                (change: any) =>
+                  change.type === 'created' &&
+                  change.objectType &&
+                  (change.objectType.includes('Counter') ||
+                    change.objectType.includes(`${counterPackageId}::counter::Counter`))
               );
-
               if (createdCounter) {
                 objectId = createdCounter.objectId;
-                console.log('Found Counter via objectChanges:', objectId);
               }
             }
 
-            // Method 2: Check effects.created as fallback
-            if (!objectId && txDetails.effects?.created) {
-              console.log('Checking effects.created:', txDetails.effects.created);
-              // For shared objects, we might need to check all created objects
-              for (const created of txDetails.effects.created) {
-                console.log('Created object details:', created);
-                if (created.reference?.objectId) {
-                  objectId = created.reference.objectId;
-                  console.log('Found object via effects.created:', objectId);
+            if (!objectId && txDetails?.effects?.created) {
+              for (const c of txDetails.effects.created) {
+                if (c.reference?.objectId) {
+                  objectId = c.reference.objectId;
                   break;
                 }
               }
             }
 
-            console.log('Final object ID:', objectId);
-
             if (objectId) {
+              addCounterForAddress(currentAccount.address, {
+                id: objectId,
+                name: name || 'My Counter',
+                isPublic: true,
+                createdAt: new Date().toISOString(),
+              });
               onCreated(objectId);
+              setName('');
             } else {
-              console.error('Could not find created Counter object');
-              console.error('Full transaction details:', JSON.stringify(txDetails, null, 2));
+              console.warn('Counter created but objectId not found in tx details:', txDetails);
+              alert('Counter created. If it does not appear, refresh in a few seconds.');
             }
-          } catch (error) {
-            console.error('Error fetching transaction details after retries:', error);
-
-            // Fallback: If we can't get the full transaction details,
-            // we can still try to navigate to a counter creation page
-            // or show a success message asking user to refresh
-            alert('Counter created successfully! Please refresh the page to see your counter.');
+          } catch (e) {
+            console.error('Failed to fetch tx details:', e);
+            alert('Counter created. If it does not appear, refresh in a few seconds.');
+          } finally {
+            setLoading(false);
           }
         },
-        onError: (error) => {
-          console.error('Transaction failed:', error);
+        onError: (err) => {
+          console.error('Create counter failed:', err);
+          setLoading(false);
         },
-      },
+      }
     );
-  }
+  };
+
+  return (
+    <Box
+      style={{
+        border: '1px solid #ddd',
+        borderRadius: 12,
+        padding: 20,
+        background: 'white',
+      }}
+    >
+      <Heading size="3" mb="3">
+        Create a New Counter
+      </Heading>
+      <Flex direction="column" gap="3">
+        <TextField.Root
+          placeholder="Enter counter name (optional)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <Flex gap="3">
+          <Button onClick={handleCreate} disabled={loading} size="3">
+            {loading ? 'Creating…' : 'Create Counter'}
+          </Button>
+          <Button
+            variant="soft"
+            color="gray"
+            size="3"
+            onClick={() => setName('')}
+            disabled={!name || loading}
+          >
+            Clear
+          </Button>
+        </Flex>
+        <Text size="1" color="gray">
+          Counters are shared objects on Sui. New counters will appear in your dashboard and can be opened or incremented.
+        </Text>
+      </Flex>
+    </Box>
+  );
 }

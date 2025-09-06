@@ -2,6 +2,8 @@ import { Transaction } from '@mysten/sui/transactions';
 import { Button, Flex, Text, Heading } from '@radix-ui/themes';
 import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClientQuery } from '@mysten/dapp-kit';
 import { useNetworkVariable } from './networkConfig';
+import { getCounterFields } from './utilsCounterHelpers';
+
 
 export function Counter({ id }: { id: string }) {
   const currentAccount = useCurrentAccount();
@@ -71,10 +73,4 @@ export function Counter({ id }: { id: string }) {
   );
 }
 
-function getCounterFields(data: any) {
-  if (data.content?.dataType !== 'moveObject') {
-    return null;
-  }
 
-  return data.content.fields as { value: string; owner: string };
-}
